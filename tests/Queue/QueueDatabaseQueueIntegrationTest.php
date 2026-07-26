@@ -156,6 +156,58 @@ class QueueDatabaseQueueIntegrationTest extends TestCase
         $this->assertEquals(1, $popped_job->attempts(), 'The "attempts" attribute of the Job object was not updated by pop!');
     }
 
+    public function testReleasingAJobCountsTheDeliveryAsAnAttempt()
+    {
+        $job = $this->popTestJob();
+
+        $this->assertEquals(1, $job->attempts());
+
+        $job->release();
+
+        $this->assertEquals(1, $this->connection()->table('jobs')->first()->attempts);
+    }
+
+    public function testReleasingAJobWithoutAnAttemptRewindsTheAttemptCount()
+    {
+        $job = $this->popTestJob();
+
+        $this->assertEquals(1, $job->attempts());
+
+        $job->releaseWithoutAttempt();
+
+        $this->assertEquals(0, $this->connection()->table('jobs')->first()->attempts);
+    }
+
+    public function testReleasingWithoutAnAttemptNeverDropsBelowZero()
+    {
+        $job = $this->popTestJob();
+
+        $job->releaseWithoutAttempt();
+        $this->queue->pop('mock_queue_name')->releaseWithoutAttempt();
+
+        $this->assertEquals(0, $this->connection()->table('jobs')->first()->attempts);
+    }
+
+    /**
+     * Insert and pop a single job so its attempt count can be asserted on.
+     *
+     * @return \Illuminate\Queue\Jobs\DatabaseJob
+     */
+    protected function popTestJob()
+    {
+        $this->connection()->table('jobs')->insert([
+            'id' => 1,
+            'queue' => 'mock_queue_name',
+            'payload' => 'mock_payload',
+            'attempts' => 0,
+            'reserved_at' => null,
+            'available_at' => Carbon::now()->subSecond()->getTimestamp(),
+            'created_at' => Carbon::now()->getTimestamp(),
+        ]);
+
+        return $this->queue->pop('mock_queue_name');
+    }
+
     /**
      * Test that the queue can be cleared.
      */

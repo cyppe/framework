@@ -4,9 +4,10 @@ namespace Illuminate\Queue\Jobs;
 
 use Illuminate\Container\Container;
 use Illuminate\Contracts\Queue\Job as JobContract;
+use Illuminate\Contracts\Queue\ReleasableWithoutAttempt;
 use Illuminate\Queue\RedisQueue;
 
-class RedisJob extends Job implements JobContract
+class RedisJob extends Job implements JobContract, ReleasableWithoutAttempt
 {
     /**
      * The Redis queue instance.
@@ -94,6 +95,20 @@ class RedisJob extends Job implements JobContract
         parent::release($delay);
 
         $this->redis->deleteAndRelease($this->queue, $this, $delay);
+    }
+
+    /**
+     * Release the job back into the queue after (n) seconds without counting
+     * the delivery as an attempt.
+     *
+     * @param  int  $delay
+     * @return void
+     */
+    public function releaseWithoutAttempt($delay = 0)
+    {
+        parent::release($delay);
+
+        $this->redis->deleteAndReleaseWithoutAttempt($this->queue, $this, $delay);
     }
 
     /**

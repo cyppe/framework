@@ -416,6 +416,39 @@ class RedisQueueTest extends TestCase
      * @param  string  $driver
      */
     #[DataProvider('redisDriverProvider')]
+    public function testReleaseWithoutAttempt($driver)
+    {
+        $default = config('queue.connections.redis.queue', 'default');
+        $this->setQueue($driver, $default);
+
+        $job = new RedisQueueIntegrationTestJob(30);
+        $this->queue->push($job);
+
+        // The pop increments the attempt count, and releasing without an
+        // attempt must undo it...
+        $redisJob = $this->queue->pop();
+        $this->assertEquals(1, $redisJob->attempts());
+
+        $redisJob->releaseWithoutAttempt(0);
+
+        $redisKey = $this->getQueueRedisKey($default);
+        $results = $this->redis[$driver]->connection()->zrangebyscore("$redisKey:delayed", -INF, INF, ['withscores' => true]);
+        $decoded = json_decode(array_keys($results)[0]);
+
+        $this->assertEquals(0, $decoded->attempts);
+        $this->assertEquals($job, unserialize($decoded->data->command));
+
+        // ...so the next delivery is attempt one again, and the payload is
+        // otherwise untouched.
+        $this->queue->migrateExpiredJobs("$redisKey:delayed", $redisKey);
+
+        $this->assertEquals(1, $this->queue->pop()->attempts());
+    }
+
+    /**
+     * @param  string  $driver
+     */
+    #[DataProvider('redisDriverProvider')]
     public function testReleaseInThePast($driver)
     {
         $default = config('queue.connections.redis.queue', 'default');

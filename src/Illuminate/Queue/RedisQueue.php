@@ -507,6 +507,25 @@ class RedisQueue extends Queue implements QueueContract, ClearableQueue
     }
 
     /**
+     * Delete a reserved job from the reserved queue and release it without
+     * counting the delivery as an attempt.
+     *
+     * @param  string  $queue
+     * @param  \Illuminate\Queue\Jobs\RedisJob  $job
+     * @param  int  $delay
+     * @return void
+     */
+    public function deleteAndReleaseWithoutAttempt($queue, $job, $delay)
+    {
+        $queue = $this->getQueueRedisKey($queue);
+
+        $this->getConnection()->eval(
+            LuaScripts::releaseWithoutAttempt(), 2, $queue.':delayed', $queue.':reserved',
+            $job->getReservedJob(), $this->availableAt($delay)
+        );
+    }
+
+    /**
      * Delete all of the jobs from the queue.
      *
      * @param  string|null  $queue

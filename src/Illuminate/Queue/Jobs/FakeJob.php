@@ -3,9 +3,10 @@
 namespace Illuminate\Queue\Jobs;
 
 use Illuminate\Contracts\Queue\Job as JobContract;
+use Illuminate\Contracts\Queue\ReleasableWithoutAttempt;
 use Illuminate\Support\Str;
 
-class FakeJob extends Job implements JobContract
+class FakeJob extends Job implements JobContract, ReleasableWithoutAttempt
 {
     /**
      * The number of seconds the released job was delayed.
@@ -58,6 +59,18 @@ class FakeJob extends Job implements JobContract
     {
         $this->released = true;
         $this->releaseDelay = $delay;
+    }
+
+    /**
+     * Release the job back into the queue after (n) seconds without counting
+     * the delivery as an attempt.
+     *
+     * @param  int  $delay
+     * @return void
+     */
+    public function releaseWithoutAttempt($delay = 0)
+    {
+        $this->release($delay);
     }
 
     /**

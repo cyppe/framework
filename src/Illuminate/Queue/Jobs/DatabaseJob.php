@@ -4,9 +4,10 @@ namespace Illuminate\Queue\Jobs;
 
 use Illuminate\Container\Container;
 use Illuminate\Contracts\Queue\Job as JobContract;
+use Illuminate\Contracts\Queue\ReleasableWithoutAttempt;
 use Illuminate\Queue\DatabaseQueue;
 
-class DatabaseJob extends Job implements JobContract
+class DatabaseJob extends Job implements JobContract, ReleasableWithoutAttempt
 {
     /**
      * The database queue instance.
@@ -51,6 +52,20 @@ class DatabaseJob extends Job implements JobContract
         parent::release($delay);
 
         $this->database->deleteAndRelease($this->queue, $this, $delay);
+    }
+
+    /**
+     * Release the job back into the queue after (n) seconds without counting
+     * the delivery as an attempt.
+     *
+     * @param  int  $delay
+     * @return void
+     */
+    public function releaseWithoutAttempt($delay = 0)
+    {
+        parent::release($delay);
+
+        $this->database->deleteAndReleaseWithoutAttempt($this->queue, $this, $delay);
     }
 
     /**

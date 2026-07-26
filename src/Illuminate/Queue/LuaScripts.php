@@ -110,6 +110,33 @@ LUA;
     }
 
     /**
+     * Get the Lua script to release reserved jobs without counting an attempt.
+     *
+     * KEYS[1] - The "delayed" queue we release jobs onto, for example: queues:foo:delayed
+     * KEYS[2] - The queue the jobs are currently on, for example: queues:foo:reserved
+     * ARGV[1] - The raw payload of the job to add to the "delayed" queue
+     * ARGV[2] - The UNIX timestamp at which the job should become available
+     *
+     * @return string
+     */
+    public static function releaseWithoutAttempt()
+    {
+        return <<<'LUA'
+-- Remove the job from the current queue...
+redis.call('zrem', KEYS[2], ARGV[1])
+
+-- Undo the attempt increment applied when the job was popped...
+local job = cjson.decode(ARGV[1])
+job['attempts'] = math.max(job['attempts'] - 1, 0)
+
+-- Add the job onto the "delayed" queue...
+redis.call('zadd', KEYS[1], ARGV[2], cjson.encode(job))
+
+return true
+LUA;
+    }
+
+    /**
      * Get the Lua script to migrate expired jobs back onto the queue.
      *
      * KEYS[1] - The queue we are removing jobs from, for example: queues:foo:reserved

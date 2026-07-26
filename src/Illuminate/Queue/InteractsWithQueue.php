@@ -4,6 +4,7 @@ namespace Illuminate\Queue;
 
 use DateTimeInterface;
 use Illuminate\Contracts\Queue\Job as JobContract;
+use Illuminate\Contracts\Queue\ReleasableWithoutAttempt;
 use Illuminate\Queue\Jobs\FakeJob;
 use Illuminate\Support\InteractsWithTime;
 use InvalidArgumentException;
@@ -71,17 +72,32 @@ trait InteractsWithQueue
      * Release the job back into the queue after (n) seconds.
      *
      * @param  \DateTimeInterface|\DateInterval|int  $delay
+     * @param  bool  $countAsAttempt
      * @return void
+     *
+     * @throws \RuntimeException
      */
-    public function release($delay = 0)
+    public function release($delay = 0, $countAsAttempt = true)
     {
         $delay = $delay instanceof DateTimeInterface
             ? $this->secondsUntil($delay)
             : $delay;
 
-        if ($this->job) {
+        if (! $this->job) {
+            return;
+        }
+
+        if ($countAsAttempt) {
             return $this->job->release($delay);
         }
+
+        if (! $this->job instanceof ReleasableWithoutAttempt) {
+            throw new RuntimeException(
+                'The ['.$this->job->getConnectionName().'] queue driver does not support releasing a job without counting an attempt.'
+            );
+        }
+
+        return $this->job->releaseWithoutAttempt($delay);
     }
 
     /**

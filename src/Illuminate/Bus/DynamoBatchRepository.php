@@ -3,12 +3,13 @@
 namespace Illuminate\Bus;
 
 use Aws\DynamoDb\DynamoDbClient;
+use Aws\DynamoDb\Exception\DynamoDbException;
 use Aws\DynamoDb\Marshaler;
 use Carbon\CarbonImmutable;
 use Closure;
 use Illuminate\Support\Str;
 
-class DynamoBatchRepository implements BatchRepository
+class DynamoBatchRepository implements BatchRepository, SupportsCustomBatchIds
 {
     /**
      * The batch factory instance.
@@ -159,6 +160,8 @@ class DynamoBatchRepository implements BatchRepository
      *
      * @param  \Illuminate\Bus\PendingBatch  $batch
      * @return \Illuminate\Bus\Batch
+     *
+     * @throws \Illuminate\Bus\BatchAlreadyExistsException
      */
     public function store(PendingBatch $batch)
     {
@@ -181,12 +184,24 @@ class DynamoBatchRepository implements BatchRepository
             $batch[$this->ttlAttribute] = time() + $this->ttl;
         }
 
-        $this->dynamoDbClient->putItem([
-            'TableName' => $this->table,
-            'Item' => $this->marshaler->marshalItem(
-                array_merge(['application' => $this->applicationName], $batch)
-            ),
-        ]);
+        try {
+            $this->dynamoDbClient->putItem([
+                'TableName' => $this->table,
+                'Item' => $this->marshaler->marshalItem(
+                    array_merge(['application' => $this->applicationName], $batch)
+                ),
+                'ConditionExpression' => 'attribute_not_exists(#id)',
+                'ExpressionAttributeNames' => [
+                    '#id' => 'id',
+                ],
+            ]);
+        } catch (DynamoDbException $e) {
+            if ($e->getAwsErrorCode() === 'ConditionalCheckFailedException') {
+                throw new BatchAlreadyExistsException($id, $e);
+            }
+
+            throw $e;
+        }
 
         return $this->find($id);
     }

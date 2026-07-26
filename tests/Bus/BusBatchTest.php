@@ -5,7 +5,9 @@ namespace Illuminate\Tests\Bus;
 use Carbon\CarbonImmutable;
 use Illuminate\Bus\Batch;
 use Illuminate\Bus\Batchable;
+use Illuminate\Bus\BatchAlreadyExistsException;
 use Illuminate\Bus\BatchFactory;
+use Illuminate\Bus\ChainedBatch;
 use Illuminate\Bus\DatabaseBatchRepository;
 use Illuminate\Bus\Dispatcher;
 use Illuminate\Bus\Events\BatchCanceled;
@@ -22,7 +24,6 @@ use Illuminate\Database\Capsule\Manager as DB;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\PostgresConnection;
 use Illuminate\Database\Query\Builder;
-use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Foundation\Bus\PendingChain;
 use Illuminate\Queue\CallQueuedClosure;
@@ -30,6 +31,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Facade;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Str;
 use Mockery as m;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -131,39 +133,98 @@ class BusBatchTest extends TestCase
         $repository = new DatabaseBatchRepository(
             new BatchFactory(m::mock(Factory::class)), DB::connection(), 'job_batches'
         );
+        $id = (string) Str::uuid7();
 
         $batch = $repository->store(
-            (new PendingBatch(new Container, collect()))->withId('my-batch-id')
+            (new PendingBatch(new Container, collect()))->withId($id)
         );
 
-        $this->assertSame('my-batch-id', $batch->id);
-        $this->assertSame('my-batch-id', $repository->find('my-batch-id')->id);
+        $this->assertSame($id, $batch->id);
+        $this->assertSame($id, $repository->find($id)->id);
     }
 
-    public function test_batch_is_stored_with_an_ordered_uuid_when_no_id_is_given()
+    public function test_batches_are_stored_with_ordered_uuids_when_no_id_is_given()
     {
         $repository = new DatabaseBatchRepository(
             new BatchFactory(m::mock(Factory::class)), DB::connection(), 'job_batches'
         );
 
-        $batch = $repository->store(new PendingBatch(new Container, collect()));
+        $ids = collect(range(1, 20))->map(function () use ($repository) {
+            $id = $repository->store(new PendingBatch(new Container, collect()))->id;
 
-        $this->assertMatchesRegularExpression(
-            '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/', $batch->id
-        );
+            usleep(1000);
+
+            return $id;
+        })->all();
+        $sortedIds = $ids;
+
+        sort($sortedIds, SORT_STRING);
+
+        $this->assertSame($ids, $sortedIds);
     }
 
-    public function test_storing_a_batch_with_a_duplicate_id_surfaces_the_driver_error()
+    public function test_custom_batch_ids_preserve_repository_ordering_and_pagination()
     {
         $repository = new DatabaseBatchRepository(
             new BatchFactory(m::mock(Factory::class)), DB::connection(), 'job_batches'
         );
+        $ids = [
+            '01890f2d-3b5a-7cc0-98c4-dc0c0c07398f',
+            '01890f2d-3b5b-7cc0-98c4-dc0c0c07398f',
+            '01890f2d-3b5c-7cc0-98c4-dc0c0c07398f',
+        ];
 
-        $repository->store((new PendingBatch(new Container, collect()))->withId('my-batch-id'));
+        foreach ($ids as $id) {
+            $repository->store((new PendingBatch(new Container, collect()))->withId($id));
+        }
 
-        $this->expectException(QueryException::class);
+        $this->assertSame(array_reverse($ids), array_column($repository->get(), 'id'));
+        $this->assertSame([$ids[0]], array_column($repository->get(50, $ids[1]), 'id'));
+    }
 
-        $repository->store((new PendingBatch(new Container, collect()))->withId('my-batch-id'));
+    public function test_storing_a_batch_with_a_duplicate_id_does_not_overwrite_it()
+    {
+        $repository = new DatabaseBatchRepository(
+            new BatchFactory(m::mock(Factory::class)), DB::connection(), 'job_batches'
+        );
+        $id = (string) Str::uuid7();
+
+        $repository->store(
+            (new PendingBatch(new Container, collect()))->withId($id)->name('first batch')
+        );
+
+        try {
+            $repository->store(
+                (new PendingBatch(new Container, collect()))->withId($id)->name('second batch')
+            );
+
+            $this->fail('A duplicate batch ID did not throw an exception.');
+        } catch (BatchAlreadyExistsException $e) {
+            $this->assertSame($id, $e->batchId);
+        }
+
+        $this->assertSame('first batch', $repository->find($id)->name);
+    }
+
+    public function test_nested_chained_batches_preserve_their_given_ids()
+    {
+        $container = new Container;
+        $id = (string) Str::uuid7();
+        $nestedBatch = (new PendingBatch($container, collect([new BatchableJob])))->withId($id);
+        $preparedJobs = ChainedBatch::prepareNestedBatches(collect([[$nestedBatch]]));
+        $chainedBatch = $preparedJobs->first()[0];
+
+        $dispatcher = m::mock(BusDispatcher::class);
+        $dispatcher->shouldReceive('batch')->once()->andReturnUsing(
+            fn ($jobs) => new PendingBatch($container, $jobs)
+        );
+        $container->instance(BusDispatcher::class, $dispatcher);
+        Container::setInstance($container);
+
+        $pendingBatch = $chainedBatch->toPendingBatch();
+
+        $this->assertSame($id, $pendingBatch->id);
+        $this->assertArrayNotHasKey('__laravel_batch_id', $pendingBatch->options);
     }
 
     public function test_jobs_can_be_added_to_the_batch()

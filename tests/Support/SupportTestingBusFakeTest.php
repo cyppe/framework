@@ -3,10 +3,12 @@
 namespace Illuminate\Tests\Support;
 
 use Illuminate\Bus\Batch;
+use Illuminate\Bus\BatchAlreadyExistsException;
 use Illuminate\Bus\Queueable;
 use Illuminate\Container\Container;
 use Illuminate\Contracts\Bus\Dispatcher;
 use Illuminate\Contracts\Bus\QueueingDispatcher;
+use Illuminate\Support\Str;
 use Illuminate\Support\Testing\Fakes\BatchRepositoryFake;
 use Illuminate\Support\Testing\Fakes\BusFake;
 use Illuminate\Support\Testing\Fakes\PendingBatchFake;
@@ -38,6 +40,29 @@ class SupportTestingBusFakeTest extends TestCase
 
         $this->assertSame($batch, $fake->findBatch($batch->id));
         $this->assertSame($batch, $busRepository->find($batch->id));
+    }
+
+    public function testPendingBatchFakeHonorsGivenIdsWithoutOverwritingDuplicates()
+    {
+        $id = (string) Str::uuid7();
+
+        $batch = $this->fake->batch([])->withId($id)->dispatchAfterResponse();
+
+        $this->assertSame($id, $batch->id);
+        $this->fake->assertBatched(
+            fn (PendingBatchFake $pendingBatch) => $pendingBatch->id === $id
+        );
+
+        try {
+            $this->fake->batch([])->withId($id)->dispatch();
+
+            $this->fail('A duplicate batch ID did not throw an exception.');
+        } catch (BatchAlreadyExistsException $e) {
+            $this->assertSame($id, $e->batchId);
+        }
+
+        $this->fake->assertBatchCount(1);
+        $this->assertSame($batch, $this->fake->findBatch($id));
     }
 
     public function testAssertDispatched()

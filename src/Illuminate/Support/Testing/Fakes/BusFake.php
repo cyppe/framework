@@ -804,9 +804,11 @@ class BusFake implements Fake, QueueingDispatcher
      */
     public function recordPendingBatch(PendingBatch $pendingBatch)
     {
+        $batch = $this->batchRepository->store($pendingBatch);
+
         $this->batches[] = $pendingBatch;
 
-        return $this->batchRepository->store($pendingBatch);
+        return $batch;
     }
 
     /**

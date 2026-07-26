@@ -13,6 +13,7 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Str;
 use Orchestra\Testbench\Attributes\WithMigration;
 
 #[WithMigration]
@@ -473,27 +474,28 @@ class JobChainingTest extends QueueTestCase
     public function testBatchInChainCanBeGivenAKnownId()
     {
         $this->markTestSkippedWhenUsingSyncQueueDriver();
+        $id = (string) Str::uuid7();
 
         Bus::chain([
             new JobChainingNamedTestJob('c1'),
             Bus::batch([
                 new JobChainingTestBatchedJob('b1'),
                 new JobChainingTestBatchedJob('b2'),
-            ])->withId('chained-batch-id'),
+            ])->withId($id),
             new JobChainingNamedTestJob('c2'),
         ])->dispatch();
 
         // The batch is materialised on a worker, so it does not exist yet...
-        $this->assertNull(Bus::findBatch('chained-batch-id'));
+        $this->assertNull(Bus::findBatch($id));
 
         $this->runQueueWorkerCommand(['--stop-when-empty' => true]);
 
         $this->assertEquals(['c1', 'b1', 'b2', 'c2'], JobRunRecorder::$results);
 
-        $batch = Bus::findBatch('chained-batch-id');
+        $batch = Bus::findBatch($id);
 
         $this->assertNotNull($batch);
-        $this->assertSame('chained-batch-id', $batch->id);
+        $this->assertSame($id, $batch->id);
         $this->assertSame(2, $batch->totalJobs);
     }
 

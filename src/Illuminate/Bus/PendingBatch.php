@@ -8,7 +8,9 @@ use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher as EventDispatcher;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Str;
 use Illuminate\Support\Traits\Conditionable;
+use InvalidArgumentException;
 use Laravel\SerializableClosure\SerializableClosure;
 use RuntimeException;
 use Throwable;
@@ -296,18 +298,40 @@ class PendingBatch
     /**
      * Set the ID that should be assigned to the batch.
      *
-     * The ID must be unique. Dispatching a batch with an ID that already exists
-     * will surface the underlying driver's error rather than overwriting the
-     * existing batch.
+     * The ID must be a canonical lowercase UUID version 7. Its embedded timestamp
+     * determines where the batch appears in repository listings and pagination.
+     * Dispatching a batch with an existing ID throws a BatchAlreadyExistsException.
+     *
+     * Chained batches require a worker running a framework version that supports
+     * custom batch IDs in order to honor the given ID.
      *
      * @param  string  $id
      * @return $this
+     *
+     * @throws \InvalidArgumentException
      */
     public function withId(string $id)
     {
+        $this->ensureBatchIdIsValid($id);
+
         $this->id = $id;
 
         return $this;
+    }
+
+    /**
+     * Ensure the given batch ID can preserve repository ordering.
+     *
+     * @param  string  $id
+     * @return void
+     *
+     * @throws \InvalidArgumentException
+     */
+    private function ensureBatchIdIsValid(string $id): void
+    {
+        if (! Str::isUuid($id, 7) || Str::lower($id) !== $id) {
+            throw new InvalidArgumentException('The batch ID must be a canonical lowercase UUID version 7.');
+        }
     }
 
     /**
@@ -486,6 +510,16 @@ class PendingBatch
      */
     protected function store($repository)
     {
+        if ($this->id !== null) {
+            $this->ensureBatchIdIsValid($this->id);
+
+            if (! ($repository instanceof SupportsCustomBatchIds)) {
+                throw new RuntimeException(sprintf(
+                    'The [%s] batch repository does not support custom batch IDs.', $repository::class
+                ));
+            }
+        }
+
         $batch = $repository->store($this);
 
         (new Collection($this->beforeCallbacks()))->each(function ($handler) use ($batch) {

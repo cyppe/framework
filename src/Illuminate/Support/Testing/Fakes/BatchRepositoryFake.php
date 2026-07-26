@@ -5,12 +5,14 @@ namespace Illuminate\Support\Testing\Fakes;
 use Carbon\Carbon;
 use Carbon\CarbonImmutable;
 use Closure;
+use Illuminate\Bus\BatchAlreadyExistsException;
 use Illuminate\Bus\BatchRepository;
 use Illuminate\Bus\PendingBatch;
+use Illuminate\Bus\SupportsCustomBatchIds;
 use Illuminate\Bus\UpdatedBatchJobCounts;
 use Illuminate\Support\Str;
 
-class BatchRepositoryFake implements BatchRepository
+class BatchRepositoryFake implements BatchRepository, SupportsCustomBatchIds
 {
     /**
      * The batches stored in the repository.
@@ -47,10 +49,16 @@ class BatchRepositoryFake implements BatchRepository
      *
      * @param  \Illuminate\Bus\PendingBatch  $batch
      * @return \Illuminate\Bus\Batch
+     *
+     * @throws \Illuminate\Bus\BatchAlreadyExistsException
      */
     public function store(PendingBatch $batch)
     {
         $id = $batch->id ?? (string) Str::orderedUuid();
+
+        if (isset($this->batches[$id])) {
+            throw new BatchAlreadyExistsException($id);
+        }
 
         $this->batches[$id] = new BatchFake(
             $id,

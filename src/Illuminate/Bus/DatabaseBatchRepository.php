@@ -8,10 +8,11 @@ use DateTimeInterface;
 use Illuminate\Database\Connection;
 use Illuminate\Database\PostgresConnection;
 use Illuminate\Database\Query\Expression;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Str;
 use Throwable;
 
-class DatabaseBatchRepository implements PrunableBatchRepository
+class DatabaseBatchRepository implements PrunableBatchRepository, SupportsCustomBatchIds
 {
     /**
      * The batch factory instance.
@@ -91,23 +92,29 @@ class DatabaseBatchRepository implements PrunableBatchRepository
      *
      * @param  \Illuminate\Bus\PendingBatch  $batch
      * @return \Illuminate\Bus\Batch
+     *
+     * @throws \Illuminate\Bus\BatchAlreadyExistsException
      */
     public function store(PendingBatch $batch)
     {
         $id = $batch->id ?? (string) Str::orderedUuid();
 
-        $this->connection->table($this->table)->insert([
-            'id' => $id,
-            'name' => $batch->name,
-            'total_jobs' => 0,
-            'pending_jobs' => 0,
-            'failed_jobs' => 0,
-            'failed_job_ids' => '[]',
-            'options' => $this->serialize($batch->options),
-            'created_at' => time(),
-            'cancelled_at' => null,
-            'finished_at' => null,
-        ]);
+        try {
+            $this->connection->table($this->table)->insert([
+                'id' => $id,
+                'name' => $batch->name,
+                'total_jobs' => 0,
+                'pending_jobs' => 0,
+                'failed_jobs' => 0,
+                'failed_job_ids' => '[]',
+                'options' => $this->serialize($batch->options),
+                'created_at' => time(),
+                'cancelled_at' => null,
+                'finished_at' => null,
+            ]);
+        } catch (UniqueConstraintViolationException $e) {
+            throw new BatchAlreadyExistsException($id, $e);
+        }
 
         return $this->find($id);
     }

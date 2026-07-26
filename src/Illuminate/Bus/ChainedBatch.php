@@ -7,6 +7,7 @@ use Illuminate\Contracts\Bus\Dispatcher;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
 use Throwable;
 
@@ -15,18 +16,16 @@ class ChainedBatch implements ShouldQueue
     use Batchable, Dispatchable, InteractsWithQueue, Queueable;
 
     /**
+     * The option used to carry a custom batch ID between workers.
+     */
+    private const CUSTOM_BATCH_ID_OPTION = '__laravel_batch_id';
+
+    /**
      * The collection of batched jobs.
      *
      * @var \Illuminate\Support\Collection
      */
     public Collection $jobs;
-
-    /**
-     * The ID that should be assigned to the batch.
-     *
-     * @var string|null
-     */
-    public ?string $id = null;
 
     /**
      * The name of the batch.
@@ -51,9 +50,12 @@ class ChainedBatch implements ShouldQueue
     {
         $this->jobs = static::prepareNestedBatches($batch->jobs);
 
-        $this->id = $batch->id;
         $this->name = $batch->name;
-        $this->options = $batch->options;
+        $this->options = Arr::except($batch->options, [self::CUSTOM_BATCH_ID_OPTION]);
+
+        if ($batch->id !== null) {
+            $this->options[self::CUSTOM_BATCH_ID_OPTION] = $batch->id;
+        }
 
         $this->queue = $batch->queue();
         $this->connection = $batch->connection();
@@ -95,10 +97,15 @@ class ChainedBatch implements ShouldQueue
     public function toPendingBatch()
     {
         $batch = Container::getInstance()->make(Dispatcher::class)->batch($this->jobs);
+        $options = $this->options;
+        $id = Arr::pull($options, self::CUSTOM_BATCH_ID_OPTION);
 
-        $batch->id = $this->id;
         $batch->name = $this->name;
-        $batch->options = $this->options;
+        $batch->options = $options;
+
+        if ($id !== null) {
+            $batch->withId($id);
+        }
 
         if ($this->queue) {
             $batch->onQueue($this->queue);

@@ -6,16 +6,27 @@ use Illuminate\Bus\Batch;
 use Illuminate\Bus\Batchable;
 use Illuminate\Bus\BatchRepository;
 use Illuminate\Bus\PendingBatch;
+use Illuminate\Bus\SupportsCustomBatchIds;
 use Illuminate\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher;
+use Illuminate\Foundation\Application;
 use Illuminate\Support\Collection;
+use InvalidArgumentException;
 use Mockery as m;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 use stdClass;
 
 class BusPendingBatchTest extends TestCase
 {
+    protected function tearDown(): void
+    {
+        Container::setInstance(null);
+
+        parent::tearDown();
+    }
+
     public function test_pending_batch_may_be_configured_and_dispatched()
     {
         $container = new Container;
@@ -63,15 +74,90 @@ class BusPendingBatchTest extends TestCase
     public function test_pending_batch_may_be_given_an_id()
     {
         $container = new Container;
+        $id = '01890f2d-3b5a-7cc0-98c4-dc0c0c07398f';
 
         $job = new class
         {
             use Batchable;
         };
 
-        $pendingBatch = (new PendingBatch($container, new Collection([$job])))->withId('my-batch-id');
+        $pendingBatch = (new PendingBatch($container, new Collection([$job])))->withId($id);
 
-        $this->assertSame('my-batch-id', $pendingBatch->id);
+        $this->assertSame($id, $pendingBatch->id);
+    }
+
+    #[DataProvider('invalidBatchIds')]
+    public function test_pending_batch_rejects_ids_that_cannot_preserve_repository_ordering(string $id)
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('The batch ID must be a canonical lowercase UUID version 7.');
+
+        (new PendingBatch(new Container, new Collection))->withId($id);
+    }
+
+    public static function invalidBatchIds()
+    {
+        return [
+            'empty' => [''],
+            'whitespace' => ['   '],
+            'falsey string' => ['0'],
+            'arbitrary string' => ['my-batch-id'],
+            'version 4 UUID' => ['92c657d0-60f8-4bbd-8b12-cf16acde3e6f'],
+            'uppercase UUID' => ['01890F2D-3B5A-7CC0-98C4-DC0C0C07398F'],
+        ];
+    }
+
+    public function test_custom_id_requires_a_repository_that_explicitly_supports_it()
+    {
+        $container = new Container;
+        $repository = m::mock(BatchRepository::class);
+        $repository->shouldNotReceive('store');
+        $container->instance(BatchRepository::class, $repository);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('does not support custom batch IDs');
+
+        (new PendingBatch($container, new Collection))
+            ->withId('01890f2d-3b5a-7cc0-98c4-dc0c0c07398f')
+            ->dispatch();
+    }
+
+    public function test_directly_assigned_invalid_id_is_rejected_before_storage()
+    {
+        $container = new Container;
+        $repository = m::mock(BatchRepository::class, SupportsCustomBatchIds::class);
+        $repository->shouldNotReceive('store');
+        $container->instance(BatchRepository::class, $repository);
+        $pendingBatch = new PendingBatch($container, new Collection);
+        $pendingBatch->id = '0';
+
+        $this->expectException(InvalidArgumentException::class);
+
+        $pendingBatch->dispatch();
+    }
+
+    public function test_batch_with_a_given_id_may_be_dispatched_after_response()
+    {
+        $container = new Application;
+        $id = '01890f2d-3b5a-7cc0-98c4-dc0c0c07398f';
+        $pendingBatch = (new PendingBatch($container, new Collection))
+            ->withId($id);
+
+        $repository = m::mock(BatchRepository::class, SupportsCustomBatchIds::class);
+        $repository->shouldReceive('store')->once()->with(m::on(
+            fn (PendingBatch $batch) => $batch->id === $id
+        ))->andReturn($batch = m::mock(Batch::class));
+        $batch->shouldReceive('add')->once()->with(m::type(Collection::class))->andReturnSelf();
+
+        $eventDispatcher = m::mock(Dispatcher::class);
+        $eventDispatcher->shouldReceive('dispatch')->once();
+
+        $container->instance(BatchRepository::class, $repository);
+        $container->instance(Dispatcher::class, $eventDispatcher);
+
+        $this->assertSame($batch, $pendingBatch->dispatchAfterResponse());
+
+        $container->terminate();
     }
 
     public function test_pending_batch_has_no_id_by_default()

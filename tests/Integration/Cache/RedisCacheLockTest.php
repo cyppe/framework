@@ -3,6 +3,7 @@
 namespace Illuminate\Tests\Integration\Cache;
 
 use Exception;
+use Illuminate\Contracts\Cache\RefreshableLock;
 use Illuminate\Foundation\Testing\Concerns\InteractsWithRedis;
 use Illuminate\Support\Facades\Cache;
 use Orchestra\Testbench\TestCase;
@@ -154,6 +155,8 @@ class RedisCacheLockTest extends TestCase
         Cache::store('redis')->lock('foo')->forceRelease();
 
         $lock = Cache::store('redis')->lock('foo', 10);
+
+        $this->assertInstanceOf(RefreshableLock::class, $lock);
         $this->assertTrue($lock->get());
 
         // Refresh the lock for another 20 seconds

@@ -4,6 +4,7 @@ namespace Illuminate\Tests\Integration\Cache;
 
 use Exception;
 use Illuminate\Contracts\Cache\LockTimeoutException;
+use Illuminate\Contracts\Cache\RefreshableLock;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Sleep;
 use Orchestra\Testbench\Attributes\WithConfig;
@@ -152,6 +153,8 @@ class FileCacheLockTest extends TestCase
     public function testLockCanBeRefreshed()
     {
         $lock = Cache::lock('foo', 10);
+
+        $this->assertInstanceOf(RefreshableLock::class, $lock);
         $this->assertTrue($lock->get());
 
         // Refresh the lock for another 20 seconds

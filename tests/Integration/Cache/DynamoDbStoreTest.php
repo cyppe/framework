@@ -4,7 +4,9 @@ namespace Illuminate\Tests\Integration\Cache;
 
 use Aws\DynamoDb\DynamoDbClient;
 use Aws\Exception\AwsException;
+use Illuminate\Contracts\Cache\RefreshableLock;
 use Illuminate\Contracts\Cache\Repository;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 use Orchestra\Testbench\Attributes\RequiresEnv;
@@ -57,6 +59,29 @@ class DynamoDbStoreTest extends TestCase
         Cache::driver('dynamodb')->lock('lock', 10)->get(function () {
             $this->assertFalse(Cache::driver('dynamodb')->lock('lock', 10)->get());
         });
+    }
+
+    public function testLocksCanBeRefreshed()
+    {
+        Carbon::setTestNow($now = Carbon::now());
+
+        $name = 'refreshable-lock-'.Str::random();
+        $lock = null;
+
+        try {
+            $lock = Cache::driver('dynamodb')->lock($name, 2);
+
+            $this->assertInstanceOf(RefreshableLock::class, $lock);
+            $this->assertTrue($lock->get());
+            $this->assertTrue($lock->refresh(10));
+
+            Carbon::setTestNow($now->addSeconds(3));
+
+            $this->assertFalse(Cache::driver('dynamodb')->lock($name, 10)->get());
+        } finally {
+            Carbon::setTestNow();
+            $lock?->forceRelease();
+        }
     }
 
     /**

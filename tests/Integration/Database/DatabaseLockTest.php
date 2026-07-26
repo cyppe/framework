@@ -3,6 +3,7 @@
 namespace Illuminate\Tests\Integration\Database;
 
 use Illuminate\Cache\DatabaseLock;
+use Illuminate\Contracts\Cache\RefreshableLock;
 use Illuminate\Database\Connection;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Database\QueryException;
@@ -104,6 +105,8 @@ class DatabaseLockTest extends DatabaseTestCase
     public function testLockCanBeRefreshed()
     {
         $lock = Cache::driver('database')->lock('foo', 10);
+
+        $this->assertInstanceOf(RefreshableLock::class, $lock);
         $this->assertTrue($lock->get());
 
         // Refresh the lock for another 20 seconds

@@ -7,11 +7,13 @@ use Illuminate\Bus\UniqueLock;
 use Illuminate\Container\Container;
 use Illuminate\Contracts\Bus\Dispatcher;
 use Illuminate\Contracts\Cache\Repository as Cache;
+use Illuminate\Contracts\Events\Dispatcher as EventDispatcher;
 use Illuminate\Contracts\Queue\PreparesForDispatch;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Foundation\Queue\InteractsWithUniqueJobs;
 use Illuminate\Queue\Attributes\DebounceFor;
 use Illuminate\Queue\Attributes\ReadsQueueAttributes;
+use Illuminate\Queue\Events\UniqueJobSuppressed;
 use Illuminate\Support\Traits\Conditionable;
 use LogicException;
 
@@ -215,8 +217,15 @@ class PendingDispatch
             return true;
         }
 
-        return (new UniqueLock(Container::getInstance()->make(Cache::class)))
-            ->acquire($this->job);
+        if ((new UniqueLock(Container::getInstance()->make(Cache::class)))->acquire($this->job)) {
+            return true;
+        }
+
+        Container::getInstance()->make(EventDispatcher::class)->dispatch(
+            new UniqueJobSuppressed($this->job, UniqueLock::getKey($this->job))
+        );
+
+        return false;
     }
 
     /**

@@ -2,7 +2,9 @@
 
 namespace Illuminate\Cache;
 
-class RedisLock extends Lock
+use Illuminate\Contracts\Cache\RefreshableLock;
+
+class RedisLock extends Lock implements RefreshableLock
 {
     /**
      * The Redis factory implementation.

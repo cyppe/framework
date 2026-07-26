@@ -2,9 +2,10 @@
 
 namespace Illuminate\Cache;
 
+use Illuminate\Contracts\Cache\RefreshableLock;
 use Illuminate\Support\Carbon;
 
-class ArrayLock extends Lock
+class ArrayLock extends Lock implements RefreshableLock
 {
     /**
      * The parent array cache store.

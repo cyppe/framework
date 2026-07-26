@@ -2,7 +2,9 @@
 
 namespace Illuminate\Cache;
 
-class NoLock extends Lock
+use Illuminate\Contracts\Cache\RefreshableLock;
+
+class NoLock extends Lock implements RefreshableLock
 {
     /**
      * Attempt to acquire the lock.

@@ -2,12 +2,13 @@
 
 namespace Illuminate\Cache;
 
+use Illuminate\Contracts\Cache\RefreshableLock;
 use Illuminate\Database\Connection;
 use Illuminate\Database\DetectsConcurrencyErrors;
 use Illuminate\Database\QueryException;
 use Throwable;
 
-class DatabaseLock extends Lock
+class DatabaseLock extends Lock implements RefreshableLock
 {
     use DetectsConcurrencyErrors;
 

@@ -2,7 +2,9 @@
 
 namespace Illuminate\Cache;
 
-class DynamoDbLock extends Lock
+use Illuminate\Contracts\Cache\RefreshableLock;
+
+class DynamoDbLock extends Lock implements RefreshableLock
 {
     /**
      * The DynamoDB client instance.

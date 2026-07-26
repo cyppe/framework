@@ -2,7 +2,9 @@
 
 namespace Illuminate\Cache;
 
-class FileLock extends CacheLock
+use Illuminate\Contracts\Cache\RefreshableLock;
+
+class FileLock extends CacheLock implements RefreshableLock
 {
     /**
      * Attempt to acquire the lock.

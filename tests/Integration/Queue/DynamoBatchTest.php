@@ -73,7 +73,7 @@ class DynamoBatchTest extends TestCase
 
     public function test_batch_may_be_stored_with_a_given_id()
     {
-        $id = (string) Str::uuid7();
+        $id = (string) Str::orderedUuid();
 
         $batch = Bus::batch([
             new BatchJob('1'),
@@ -85,7 +85,7 @@ class DynamoBatchTest extends TestCase
 
     public function test_duplicate_batch_id_does_not_overwrite_the_existing_batch()
     {
-        $id = (string) Str::uuid7();
+        $id = (string) Str::orderedUuid();
 
         Bus::batch([new BatchJob('1')])->withId($id)->name('first batch')->dispatch();
 
@@ -102,21 +102,22 @@ class DynamoBatchTest extends TestCase
 
     public function test_custom_batch_ids_preserve_listing_order_and_pagination()
     {
-        $ids = [
-            '01890f2d-3b5a-7cc0-98c4-dc0c0c07398f',
-            '01890f2d-3b5b-7cc0-98c4-dc0c0c07398f',
-            '01890f2d-3b5c-7cc0-98c4-dc0c0c07398f',
-        ];
+        $first = Bus::batch([new BatchJob('first')])->dispatch();
 
-        foreach ($ids as $id) {
-            Bus::batch([new BatchJob($id)])->withId($id)->dispatch();
-        }
+        usleep(1000);
+
+        $secondId = (string) Str::orderedUuid();
+        Bus::batch([new BatchJob('second')])->withId($secondId)->dispatch();
+
+        usleep(1000);
+
+        $third = Bus::batch([new BatchJob('third')])->dispatch();
 
         /** @var DynamoBatchRepository */
         $repository = app(DynamoBatchRepository::class);
 
-        $this->assertSame(array_reverse($ids), array_column($repository->get(), 'id'));
-        $this->assertSame([$ids[0]], array_column($repository->get(50, $ids[1]), 'id'));
+        $this->assertSame([$third->id, $secondId, $first->id], array_column($repository->get(), 'id'));
+        $this->assertSame([$first->id], array_column($repository->get(50, $secondId), 'id'));
     }
 
     public function test_retrieve_non_existent_batch()

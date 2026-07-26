@@ -133,7 +133,7 @@ class BusBatchTest extends TestCase
         $repository = new DatabaseBatchRepository(
             new BatchFactory(m::mock(Factory::class)), DB::connection(), 'job_batches'
         );
-        $id = (string) Str::uuid7();
+        $id = (string) Str::orderedUuid();
 
         $batch = $repository->store(
             (new PendingBatch(new Container, collect()))->withId($id)
@@ -168,18 +168,20 @@ class BusBatchTest extends TestCase
         $repository = new DatabaseBatchRepository(
             new BatchFactory(m::mock(Factory::class)), DB::connection(), 'job_batches'
         );
-        $ids = [
-            '01890f2d-3b5a-7cc0-98c4-dc0c0c07398f',
-            '01890f2d-3b5b-7cc0-98c4-dc0c0c07398f',
-            '01890f2d-3b5c-7cc0-98c4-dc0c0c07398f',
-        ];
 
-        foreach ($ids as $id) {
-            $repository->store((new PendingBatch(new Container, collect()))->withId($id));
-        }
+        $firstId = $repository->store(new PendingBatch(new Container, collect()))->id;
 
-        $this->assertSame(array_reverse($ids), array_column($repository->get(), 'id'));
-        $this->assertSame([$ids[0]], array_column($repository->get(50, $ids[1]), 'id'));
+        usleep(1000);
+
+        $secondId = (string) Str::orderedUuid();
+        $repository->store((new PendingBatch(new Container, collect()))->withId($secondId));
+
+        usleep(1000);
+
+        $thirdId = $repository->store(new PendingBatch(new Container, collect()))->id;
+
+        $this->assertSame([$thirdId, $secondId, $firstId], array_column($repository->get(), 'id'));
+        $this->assertSame([$firstId], array_column($repository->get(50, $secondId), 'id'));
     }
 
     public function test_storing_a_batch_with_a_duplicate_id_does_not_overwrite_it()
@@ -187,7 +189,7 @@ class BusBatchTest extends TestCase
         $repository = new DatabaseBatchRepository(
             new BatchFactory(m::mock(Factory::class)), DB::connection(), 'job_batches'
         );
-        $id = (string) Str::uuid7();
+        $id = (string) Str::orderedUuid();
 
         $repository->store(
             (new PendingBatch(new Container, collect()))->withId($id)->name('first batch')
@@ -209,7 +211,7 @@ class BusBatchTest extends TestCase
     public function test_nested_chained_batches_preserve_their_given_ids()
     {
         $container = new Container;
-        $id = (string) Str::uuid7();
+        $id = (string) Str::orderedUuid();
         $nestedBatch = (new PendingBatch($container, collect([new BatchableJob])))->withId($id);
         $preparedJobs = ChainedBatch::prepareNestedBatches(collect([[$nestedBatch]]));
         $chainedBatch = $preparedJobs->first()[0];

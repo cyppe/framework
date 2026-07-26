@@ -44,7 +44,7 @@ class SupportTestingBusFakeTest extends TestCase
 
     public function testPendingBatchFakeHonorsGivenIdsWithoutOverwritingDuplicates()
     {
-        $id = (string) Str::uuid7();
+        $id = (string) Str::orderedUuid();
 
         $batch = $this->fake->batch([])->withId($id)->dispatchAfterResponse();
 

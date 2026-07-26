@@ -474,7 +474,7 @@ class JobChainingTest extends QueueTestCase
     public function testBatchInChainCanBeGivenAKnownId()
     {
         $this->markTestSkippedWhenUsingSyncQueueDriver();
-        $id = (string) Str::uuid7();
+        $id = (string) Str::orderedUuid();
 
         Bus::chain([
             new JobChainingNamedTestJob('c1'),

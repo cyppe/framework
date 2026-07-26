@@ -421,28 +421,91 @@ class RedisQueueTest extends TestCase
         $default = config('queue.connections.redis.queue', 'default');
         $this->setQueue($driver, $default);
 
-        $job = new RedisQueueIntegrationTestJob(30);
+        $job = new RedisQueueReleaseWithoutAttemptIntegrationTestJob('üñî/東京\\');
+        $job->maxExceptions = 3;
+        $job->backoff = [5, 10];
+        $job->retryUntil = $this->currentTime() + 3600;
+
         $this->queue->push($job);
 
-        // The pop increments the attempt count, and releasing without an
-        // attempt must undo it...
+        // Establish a payload whose attempts are greater than one so resetting
+        // the count to zero cannot satisfy the test.
         $redisJob = $this->queue->pop();
         $this->assertEquals(1, $redisJob->attempts());
 
-        $redisJob->releaseWithoutAttempt(0);
+        $redisJob->release(0);
 
         $redisKey = $this->getQueueRedisKey($default);
-        $results = $this->redis[$driver]->connection()->zrangebyscore("$redisKey:delayed", -INF, INF, ['withscores' => true]);
-        $decoded = json_decode(array_keys($results)[0]);
-
-        $this->assertEquals(0, $decoded->attempts);
-        $this->assertEquals($job, unserialize($decoded->data->command));
-
-        // ...so the next delivery is attempt one again, and the payload is
-        // otherwise untouched.
         $this->queue->migrateExpiredJobs("$redisKey:delayed", $redisKey);
 
-        $this->assertEquals(1, $this->queue->pop()->attempts());
+        $redisJob = $this->queue->pop();
+        $this->assertEquals(2, $redisJob->attempts());
+
+        $redisJob->release(0);
+        $this->queue->migrateExpiredJobs("$redisKey:delayed", $redisKey);
+
+        $redisJob = $this->queue->pop();
+        $this->assertEquals(3, $redisJob->attempts());
+        $this->assertEquals(1, $this->redis[$driver]->connection()->zcard("$redisKey:reserved"));
+
+        $payloadBeforeDelivery = $redisJob->getRawBody();
+        $decodedBeforeDelivery = json_decode($payloadBeforeDelivery, true);
+
+        $redisJob->releaseWithoutAttempt(0);
+
+        $this->assertTrue($redisJob->isReleased());
+        $this->assertEquals(0, $this->redis[$driver]->connection()->zcard("$redisKey:reserved"));
+        $this->assertEquals(1, $this->redis[$driver]->connection()->zcard("$redisKey:delayed"));
+
+        $results = $this->redis[$driver]->connection()->zrangebyscore("$redisKey:delayed", -INF, INF, ['withscores' => true]);
+        $payloadAfterRelease = array_keys($results)[0];
+        $decodedAfterRelease = json_decode($payloadAfterRelease, true);
+
+        $this->assertSame($payloadBeforeDelivery, $payloadAfterRelease);
+        $this->assertSame($decodedBeforeDelivery, $decodedAfterRelease);
+        $this->assertSame(2, $decodedAfterRelease['attempts']);
+        $this->assertSame(3, $decodedAfterRelease['maxExceptions']);
+        $this->assertSame('5,10', $decodedAfterRelease['backoff']);
+        $this->assertSame($job->retryUntil, $decodedAfterRelease['retryUntil']);
+        $this->assertEquals($job, unserialize($decodedAfterRelease['data']['command']));
+
+        $this->queue->migrateExpiredJobs("$redisKey:delayed", $redisKey);
+
+        $this->assertEquals(3, $this->queue->pop()->attempts());
+    }
+
+    /**
+     * @param  string  $driver
+     */
+    #[DataProvider('redisDriverProvider')]
+    public function testReleaseWithoutAttemptUsesZeroAsTheAttemptFloor($driver)
+    {
+        $default = config('queue.connections.redis.queue', 'default');
+        $this->setQueue($driver, $default);
+
+        $payload = json_encode([
+            'id' => 'zero-attempt-job',
+            'attempts' => 0,
+            'data' => ['value' => 'üñî/東京\\'],
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+        $redisKey = $this->getQueueRedisKey($default);
+        $this->redis[$driver]->connection()->zadd("$redisKey:reserved", $this->currentTime() + 60, $payload);
+
+        $job = new RedisJob(
+            $this->container, $this->queue, $payload, $payload,
+            'redis', $default
+        );
+
+        $job->releaseWithoutAttempt();
+
+        $this->assertEquals(0, $this->redis[$driver]->connection()->zcard("$redisKey:reserved"));
+
+        $results = $this->redis[$driver]->connection()->zrangebyscore("$redisKey:delayed", -INF, INF, ['withscores' => true]);
+        $releasedPayload = array_keys($results)[0];
+
+        $this->assertSame($payload, $releasedPayload);
+        $this->assertSame(0, json_decode($releasedPayload, true)['attempts']);
     }
 
     /**
@@ -781,4 +844,13 @@ class RedisQueueIntegrationTestJob
     {
         //
     }
+}
+
+class RedisQueueReleaseWithoutAttemptIntegrationTestJob extends RedisQueueIntegrationTestJob
+{
+    public $maxExceptions;
+
+    public $backoff;
+
+    public $retryUntil;
 }

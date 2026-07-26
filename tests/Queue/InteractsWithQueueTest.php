@@ -6,7 +6,11 @@ use Exception;
 use Illuminate\Contracts\Queue\Job;
 use Illuminate\Contracts\Queue\ReleasableWithoutAttempt;
 use Illuminate\Queue\InteractsWithQueue;
+use Illuminate\Queue\Jobs\BeanstalkdJob;
+use Illuminate\Queue\Jobs\SqsJob;
+use Illuminate\Queue\Jobs\SyncJob;
 use Mockery as m;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 
@@ -33,18 +37,20 @@ class InteractsWithQueueTest extends TestCase
         $job->fail('Whoops!');
     }
 
-    public function testReleaseCountsAnAttemptByDefault()
+    public function testReleaseRetainsItsOriginalSignatureAndBehavior()
     {
         $queueJob = m::mock(Job::class);
         $queueJob->shouldReceive('release')->once()->with(5);
 
-        $job = $this->jobUsingTheTrait();
+        $job = new InteractsWithQueueOverridingReleaseJob;
         $job->job = $queueJob;
 
         $job->release(5);
+
+        $this->assertSame(5, $job->releasedWith);
     }
 
-    public function testReleaseCanSkipCountingAnAttemptOnSupportedDrivers()
+    public function testReleaseWithoutAttemptUsesTheCapabilityOnSupportedDrivers()
     {
         $queueJob = m::mock(Job::class, ReleasableWithoutAttempt::class);
         $queueJob->shouldNotReceive('release');
@@ -53,31 +59,56 @@ class InteractsWithQueueTest extends TestCase
         $job = $this->jobUsingTheTrait();
         $job->job = $queueJob;
 
-        $job->release(5, countAsAttempt: false);
+        $job->releaseWithoutAttempt(5);
     }
 
-    public function testReleaseThrowsWhenTheDriverCannotSkipCountingAnAttempt()
+    #[DataProvider('unsupportedDriverProvider')]
+    public function testReleaseWithoutAttemptThrowsWhenTheDriverDoesNotAdvertiseTheCapability($connection)
     {
         $queueJob = m::mock(Job::class);
         $queueJob->shouldNotReceive('release');
-        $queueJob->shouldReceive('getConnectionName')->andReturn('sqs');
+        $queueJob->shouldReceive('getConnectionName')->andReturn($connection);
 
         $job = $this->jobUsingTheTrait();
         $job->job = $queueJob;
 
         $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('The [sqs] queue driver does not support releasing a job without counting an attempt.');
+        $this->expectExceptionMessage("The [$connection] queue driver does not support releasing a job without counting an attempt.");
 
-        $job->release(5, countAsAttempt: false);
+        $job->releaseWithoutAttempt(5);
     }
 
     public function testReleaseWithoutCountingAnAttemptIsSupportedByFakeQueueInteractions()
     {
         $job = $this->jobUsingTheTrait();
 
-        $job->withFakeQueueInteractions()->release(5, countAsAttempt: false);
+        $job->withFakeQueueInteractions()->releaseWithoutAttempt(5);
 
         $job->assertReleased(5);
+    }
+
+    #[DataProvider('unsupportedJobClassProvider')]
+    public function testUnsupportedFirstPartyJobsDoNotAdvertiseTheCapability($jobClass)
+    {
+        $this->assertFalse(is_a($jobClass, ReleasableWithoutAttempt::class, true));
+    }
+
+    public static function unsupportedDriverProvider()
+    {
+        return [
+            ['sync'],
+            ['sqs'],
+            ['beanstalkd'],
+        ];
+    }
+
+    public static function unsupportedJobClassProvider()
+    {
+        return [
+            [SyncJob::class],
+            [SqsJob::class],
+            [BeanstalkdJob::class],
+        ];
     }
 
     protected function jobUsingTheTrait()
@@ -86,5 +117,22 @@ class InteractsWithQueueTest extends TestCase
         {
             use InteractsWithQueue;
         };
+    }
+}
+
+class InteractsWithQueueBaseJob
+{
+    use InteractsWithQueue;
+}
+
+class InteractsWithQueueOverridingReleaseJob extends InteractsWithQueueBaseJob
+{
+    public $releasedWith;
+
+    public function release($delay = 0)
+    {
+        parent::release($delay);
+
+        $this->releasedWith = $delay;
     }
 }

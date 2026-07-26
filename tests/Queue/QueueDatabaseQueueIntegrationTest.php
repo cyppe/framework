@@ -10,6 +10,8 @@ use Illuminate\Events\Dispatcher;
 use Illuminate\Queue\DatabaseQueue;
 use Illuminate\Queue\Events\JobQueued;
 use Illuminate\Queue\Events\JobQueueing;
+use Illuminate\Queue\Jobs\DatabaseJob;
+use Illuminate\Queue\Jobs\DatabaseJobRecord;
 use Illuminate\Queue\Queue;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
@@ -169,21 +171,36 @@ class QueueDatabaseQueueIntegrationTest extends TestCase
 
     public function testReleasingAJobWithoutAnAttemptRewindsTheAttemptCount()
     {
-        $job = $this->popTestJob();
+        $job = $this->popTestJob(2);
 
-        $this->assertEquals(1, $job->attempts());
+        $this->assertEquals(3, $job->attempts());
 
         $job->releaseWithoutAttempt();
 
-        $this->assertEquals(0, $this->connection()->table('jobs')->first()->attempts);
+        $this->assertTrue($job->isReleased());
+        $this->assertEquals(1, $this->connection()->table('jobs')->count());
+        $this->assertNull($this->connection()->table('jobs')->find(1));
+        $this->assertEquals(2, $this->connection()->table('jobs')->first()->attempts);
     }
 
     public function testReleasingWithoutAnAttemptNeverDropsBelowZero()
     {
-        $job = $this->popTestJob();
+        $record = (object) [
+            'id' => 1,
+            'queue' => 'mock_queue_name',
+            'payload' => 'mock_payload',
+            'attempts' => 0,
+            'reserved_at' => Carbon::now()->getTimestamp(),
+            'available_at' => Carbon::now()->subSecond()->getTimestamp(),
+            'created_at' => Carbon::now()->getTimestamp(),
+        ];
 
-        $job->releaseWithoutAttempt();
-        $this->queue->pop('mock_queue_name')->releaseWithoutAttempt();
+        $this->connection()->table('jobs')->insert((array) $record);
+
+        (new DatabaseJob(
+            $this->container, $this->queue, new DatabaseJobRecord($record),
+            'database', 'mock_queue_name'
+        ))->releaseWithoutAttempt();
 
         $this->assertEquals(0, $this->connection()->table('jobs')->first()->attempts);
     }
@@ -193,13 +210,13 @@ class QueueDatabaseQueueIntegrationTest extends TestCase
      *
      * @return \Illuminate\Queue\Jobs\DatabaseJob
      */
-    protected function popTestJob()
+    protected function popTestJob($attempts = 0)
     {
         $this->connection()->table('jobs')->insert([
             'id' => 1,
             'queue' => 'mock_queue_name',
             'payload' => 'mock_payload',
-            'attempts' => 0,
+            'attempts' => $attempts,
             'reserved_at' => null,
             'available_at' => Carbon::now()->subSecond()->getTimestamp(),
             'created_at' => Carbon::now()->getTimestamp(),

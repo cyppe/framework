@@ -334,20 +334,6 @@ class DatabaseQueue extends Queue implements QueueContract, ClearableQueue
     }
 
     /**
-     * Release a reserved job back onto the queue after (n) seconds without
-     * counting the delivery as an attempt.
-     *
-     * @param  string  $queue
-     * @param  \Illuminate\Queue\Jobs\DatabaseJobRecord  $job
-     * @param  int  $delay
-     * @return mixed
-     */
-    public function releaseWithoutAttempt($queue, $job, $delay)
-    {
-        return $this->pushToDatabase($queue, $job->payload, $delay, max($job->attempts - 1, 0));
-    }
-
-    /**
      * Push a raw payload to the database with a given delay of (n) seconds.
      *
      * @param  string|null  $queue
@@ -597,7 +583,9 @@ class DatabaseQueue extends Queue implements QueueContract, ClearableQueue
                 $this->database->table($this->table)->where('id', $job->getJobId())->delete();
             }
 
-            $this->releaseWithoutAttempt($queue, $job->getJobRecord(), $delay);
+            $record = $job->getJobRecord();
+
+            $this->pushToDatabase($queue, $record->payload, $delay, max($record->attempts - 1, 0));
         });
     }
 

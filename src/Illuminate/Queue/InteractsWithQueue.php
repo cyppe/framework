@@ -72,12 +72,30 @@ trait InteractsWithQueue
      * Release the job back into the queue after (n) seconds.
      *
      * @param  \DateTimeInterface|\DateInterval|int  $delay
-     * @param  bool  $countAsAttempt
+     * @return void
+     */
+    public function release($delay = 0)
+    {
+        $delay = $delay instanceof DateTimeInterface
+            ? $this->secondsUntil($delay)
+            : $delay;
+
+        if ($this->job) {
+            return $this->job->release($delay);
+        }
+    }
+
+    /**
+     * Release the job back into the queue without counting the delivery as an attempt.
+     *
+     * This does not reset the job's exception count or retry deadline.
+     *
+     * @param  \DateTimeInterface|\DateInterval|int  $delay
      * @return void
      *
      * @throws \RuntimeException
      */
-    public function release($delay = 0, $countAsAttempt = true)
+    public function releaseWithoutAttempt($delay = 0)
     {
         $delay = $delay instanceof DateTimeInterface
             ? $this->secondsUntil($delay)
@@ -85,10 +103,6 @@ trait InteractsWithQueue
 
         if (! $this->job) {
             return;
-        }
-
-        if ($countAsAttempt) {
-            return $this->job->release($delay);
         }
 
         if (! $this->job instanceof ReleasableWithoutAttempt) {

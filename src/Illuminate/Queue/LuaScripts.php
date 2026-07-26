@@ -114,8 +114,9 @@ LUA;
      *
      * KEYS[1] - The "delayed" queue we release jobs onto, for example: queues:foo:delayed
      * KEYS[2] - The queue the jobs are currently on, for example: queues:foo:reserved
-     * ARGV[1] - The raw payload of the job to add to the "delayed" queue
+     * ARGV[1] - The raw reserved payload of the job to remove
      * ARGV[2] - The UNIX timestamp at which the job should become available
+     * ARGV[3] - The raw payload from before the current delivery incremented its attempts
      *
      * @return string
      */
@@ -125,12 +126,8 @@ LUA;
 -- Remove the job from the current queue...
 redis.call('zrem', KEYS[2], ARGV[1])
 
--- Undo the attempt increment applied when the job was popped...
-local job = cjson.decode(ARGV[1])
-job['attempts'] = math.max(job['attempts'] - 1, 0)
-
--- Add the job onto the "delayed" queue...
-redis.call('zadd', KEYS[1], ARGV[2], cjson.encode(job))
+-- Add the exact pre-delivery payload onto the "delayed" queue...
+redis.call('zadd', KEYS[1], ARGV[2], ARGV[3])
 
 return true
 LUA;

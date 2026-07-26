@@ -11,9 +11,11 @@ use Illuminate\Container\Container;
 use Illuminate\Contracts\Bus\Dispatcher;
 use Illuminate\Contracts\Cache\Repository as Cache;
 use Illuminate\Contracts\Container\BindingResolutionException;
+use Illuminate\Contracts\Events\Dispatcher as EventDispatcher;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Queue\CallQueuedClosure;
+use Illuminate\Queue\Events\UniqueJobSuppressed;
 use Illuminate\Support\Collection;
 use Illuminate\Support\ProcessUtils;
 use Illuminate\Support\Traits\Macroable;
@@ -280,7 +282,15 @@ class Schedule
             throw new RuntimeException('Cache driver not available. Scheduling unique jobs not supported.');
         }
 
-        if (! (new UniqueLock(Container::getInstance()->make(Cache::class)))->acquire($job)) {
+        $result = (new UniqueLock(
+            Container::getInstance()->make(Cache::class)
+        ))->acquireWithKey($job);
+
+        if (! $result['acquired']) {
+            Container::getInstance()->make(EventDispatcher::class)->dispatch(
+                new UniqueJobSuppressed($job, $result['key'])
+            );
+
             return;
         }
 

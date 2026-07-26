@@ -17,10 +17,12 @@ use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 use Illuminate\Contracts\Broadcasting\ShouldRescue;
 use Illuminate\Contracts\Bus\Dispatcher as BusDispatcherContract;
 use Illuminate\Contracts\Cache\Repository as Cache;
+use Illuminate\Contracts\Events\Dispatcher as EventDispatcher;
 use Illuminate\Contracts\Foundation\CachesRoutes;
 use Illuminate\Queue\Attributes\Connection as ConnectionAttribute;
 use Illuminate\Queue\Attributes\Queue as QueueAttribute;
 use Illuminate\Queue\Attributes\ReadsQueueAttributes;
+use Illuminate\Queue\Events\UniqueJobSuppressed;
 use Illuminate\Support\Queue\Concerns\ResolvesQueueRoutes;
 use Illuminate\Support\RebindsCallbacksToSelf;
 use InvalidArgumentException;
@@ -244,11 +246,19 @@ class BroadcastManager implements FactoryContract
      */
     protected function mustBeUniqueAndCannotAcquireLock($event)
     {
-        return ! (new UniqueLock(
+        $result = (new UniqueLock(
             method_exists($event, 'uniqueVia')
                 ? $event->uniqueVia()
                 : $this->app->make(Cache::class)
-        ))->acquire($event);
+        ))->acquireWithKey($event);
+
+        if (! $result['acquired']) {
+            $this->app->make(EventDispatcher::class)->dispatch(
+                new UniqueJobSuppressed($event, $result['key'])
+            );
+        }
+
+        return ! $result['acquired'];
     }
 
     /**

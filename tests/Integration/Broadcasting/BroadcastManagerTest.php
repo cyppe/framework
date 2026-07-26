@@ -5,6 +5,7 @@ namespace Illuminate\Tests\Integration\Broadcasting;
 use Illuminate\Broadcasting\BroadcastEvent;
 use Illuminate\Broadcasting\BroadcastManager;
 use Illuminate\Broadcasting\UniqueBroadcastEvent;
+use Illuminate\Bus\UniqueLock;
 use Illuminate\Config\Repository;
 use Illuminate\Container\Container;
 use Illuminate\Contracts\Broadcasting\ShouldBeUnique;
@@ -12,8 +13,10 @@ use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 use Illuminate\Contracts\Broadcasting\ShouldRescue;
 use Illuminate\Contracts\Cache\Repository as Cache;
+use Illuminate\Queue\Events\UniqueJobSuppressed;
 use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
 use InvalidArgumentException;
 use Orchestra\Testbench\TestCase;
@@ -83,11 +86,20 @@ class BroadcastManagerTest extends TestCase
     {
         Bus::fake();
         Queue::fake();
+        Event::fake([UniqueJobSuppressed::class]);
 
+        Broadcast::queue(new TestEventUnique);
         Broadcast::queue(new TestEventUnique);
 
         Bus::assertNotDispatched(UniqueBroadcastEvent::class);
-        Queue::assertPushed(UniqueBroadcastEvent::class);
+        Queue::assertPushed(UniqueBroadcastEvent::class, 1);
+
+        Event::assertDispatchedTimes(UniqueJobSuppressed::class, 1);
+        Event::assertDispatched(UniqueJobSuppressed::class, function ($event) {
+            return $event->job instanceof UniqueBroadcastEvent
+                && $event->job->event instanceof TestEventUnique
+                && $event->key === UniqueLock::getKey($event->job);
+        });
 
         $lockKey = 'laravel_unique_job:'.hash('xxh128', TestEventUnique::class).':';
         $this->assertFalse($this->app->get(Cache::class)->lock($lockKey, 10)->get());

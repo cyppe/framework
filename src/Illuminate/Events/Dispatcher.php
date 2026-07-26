@@ -28,6 +28,7 @@ use Illuminate\Queue\Attributes\Queue as QueueAttribute;
 use Illuminate\Queue\Attributes\Timeout;
 use Illuminate\Queue\Attributes\Tries;
 use Illuminate\Queue\Attributes\UniqueFor;
+use Illuminate\Queue\Events\UniqueJobSuppressed;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Queue\Concerns\ResolvesQueueRoutes;
@@ -655,9 +656,18 @@ class Dispatcher implements DispatcherContract
     {
         [$listener, $job] = $this->createListenerAndJob($class, $method, $arguments);
 
-        if ($job->shouldBeUnique &&
-            ! (new UniqueLock($this->container->make(Cache::class)))->acquire($job)) {
-            return;
+        if ($job->shouldBeUnique) {
+            $result = (new UniqueLock(
+                $this->container->make(Cache::class)
+            ))->acquireWithKey($job);
+
+            if (! $result['acquired']) {
+                if (! ($arguments[0] ?? null) instanceof UniqueJobSuppressed) {
+                    $this->dispatch(new UniqueJobSuppressed($job, $result['key']));
+                }
+
+                return;
+            }
         }
 
         $connectionName = method_exists($listener, 'viaConnection')

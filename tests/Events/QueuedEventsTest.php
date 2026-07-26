@@ -14,6 +14,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Events\CallQueuedListener;
 use Illuminate\Events\Dispatcher;
 use Illuminate\Queue\CallQueuedHandler;
+use Illuminate\Queue\Events\UniqueJobSuppressed;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\QueueManager;
 use Illuminate\Queue\QueueRoutes;
@@ -22,6 +23,7 @@ use Illuminate\Support\Testing\Fakes\QueueFake;
 use Laravel\SerializableClosure\SerializableClosure;
 use Mockery as m;
 use PHPUnit\Framework\TestCase;
+use stdClass;
 
 class QueuedEventsTest extends TestCase
 {
@@ -379,6 +381,39 @@ class QueuedEventsTest extends TestCase
         $fakeQueue = new QueueFake($container);
         $cache = m::mock(Cache::class);
         $lock = m::mock(Lock::class);
+        $suppressed = null;
+        $expectedKey = 'laravel_unique_job:'.hash('xxh128', TestDispatcherShouldBeUnique::class).':unique-listener-id';
+
+        $container->instance(Cache::class, $cache);
+
+        $cache->shouldReceive('lock')->once()->with($expectedKey, 60)->andReturn($lock);
+        $lock->shouldReceive('get')->once()->andReturn(false);
+
+        $d->setQueueResolver(function () use ($fakeQueue) {
+            return $fakeQueue;
+        });
+
+        $d->listen(UniqueJobSuppressed::class, function ($event) use (&$suppressed) {
+            $suppressed = $event;
+        });
+        $d->listen('some.event', TestDispatcherShouldBeUnique::class.'@handle');
+        $d->dispatch('some.event', ['foo', 'bar']);
+
+        $fakeQueue->assertNothingPushed();
+        $this->assertInstanceOf(UniqueJobSuppressed::class, $suppressed);
+        $this->assertInstanceOf(CallQueuedListener::class, $suppressed->job);
+        $this->assertSame(TestDispatcherShouldBeUnique::class, $suppressed->job->class);
+        $this->assertSame($expectedKey, $suppressed->key);
+    }
+
+    public function testSuppressedEventDoesNotRecursivelyReportItsOwnUniqueListener()
+    {
+        $container = new Container;
+        $d = new Dispatcher($container);
+
+        $fakeQueue = new QueueFake($container);
+        $cache = m::mock(Cache::class);
+        $lock = m::mock(Lock::class);
 
         $container->instance(Cache::class, $cache);
 
@@ -389,8 +424,8 @@ class QueuedEventsTest extends TestCase
             return $fakeQueue;
         });
 
-        $d->listen('some.event', TestDispatcherShouldBeUnique::class.'@handle');
-        $d->dispatch('some.event', ['foo', 'bar']);
+        $d->listen(UniqueJobSuppressed::class, TestDispatcherShouldBeUnique::class.'@handle');
+        $d->dispatch(new UniqueJobSuppressed(new stdClass, 'unique-key'));
 
         $fakeQueue->assertNothingPushed();
     }

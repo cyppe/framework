@@ -35,6 +35,17 @@ class UniqueLock
      */
     public function acquire($job)
     {
+        return $this->acquireWithKey($job)['acquired'];
+    }
+
+    /**
+     * Attempt to acquire a lock for the given job and return the exact lock key used.
+     *
+     * @param  mixed  $job
+     * @return array{acquired: bool, key: string}
+     */
+    public function acquireWithKey($job)
+    {
         $uniqueFor = method_exists($job, 'uniqueFor')
             ? $job->uniqueFor()
             : ($this->getAttributeValue($job, UniqueFor::class, 'uniqueFor') ?? 0);
@@ -43,7 +54,12 @@ class UniqueLock
             ? ($job->uniqueVia() ?? $this->cache)
             : $this->cache;
 
-        return (bool) $cache->lock(self::getKey($job), $uniqueFor)->get();
+        $key = self::getKey($job);
+
+        return [
+            'acquired' => (bool) $cache->lock($key, $uniqueFor)->get(),
+            'key' => $key,
+        ];
     }
 
     /**

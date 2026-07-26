@@ -217,12 +217,16 @@ class PendingDispatch
             return true;
         }
 
-        if ((new UniqueLock(Container::getInstance()->make(Cache::class)))->acquire($this->job)) {
+        $result = (new UniqueLock(
+            Container::getInstance()->make(Cache::class)
+        ))->acquireWithKey($this->job);
+
+        if ($result['acquired']) {
             return true;
         }
 
         Container::getInstance()->make(EventDispatcher::class)->dispatch(
-            new UniqueJobSuppressed($this->job, UniqueLock::getKey($this->job))
+            new UniqueJobSuppressed($this->job, $result['key'])
         );
 
         return false;
@@ -291,22 +295,27 @@ class PendingDispatch
      */
     public function __destruct()
     {
-        $this->addUniqueJobInformationToContext($this->job);
+        $addedUniqueJobInformationToContext = false;
 
-        if (! $this->shouldDispatch()) {
-            $this->removeUniqueJobInformationFromContext($this->job);
+        try {
+            if (! $this->shouldDispatch()) {
+                return;
+            }
 
-            return;
+            $this->addUniqueJobInformationToContext($this->job);
+            $addedUniqueJobInformationToContext = true;
+
+            $this->acquireDebounceLock();
+
+            if ($this->afterResponse) {
+                app(Dispatcher::class)->dispatchAfterResponse($this->job);
+            } else {
+                app(Dispatcher::class)->dispatch($this->job);
+            }
+        } finally {
+            if ($addedUniqueJobInformationToContext) {
+                $this->removeUniqueJobInformationFromContext($this->job);
+            }
         }
-
-        $this->acquireDebounceLock();
-
-        if ($this->afterResponse) {
-            app(Dispatcher::class)->dispatchAfterResponse($this->job);
-        } else {
-            app(Dispatcher::class)->dispatch($this->job);
-        }
-
-        $this->removeUniqueJobInformationFromContext($this->job);
     }
 }

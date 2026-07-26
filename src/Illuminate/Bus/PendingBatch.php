@@ -28,6 +28,13 @@ class PendingBatch
     protected $container;
 
     /**
+     * The ID that should be assigned to the batch.
+     *
+     * @var string|null
+     */
+    public $id = null;
+
+    /**
      * The batch name.
      *
      * @var string
@@ -284,6 +291,23 @@ class PendingBatch
         $this->options[$type][] = $callback instanceof Closure
             ? new SerializableClosure($callback)
             : $callback;
+    }
+
+    /**
+     * Set the ID that should be assigned to the batch.
+     *
+     * The ID must be unique. Dispatching a batch with an ID that already exists
+     * will surface the underlying driver's error rather than overwriting the
+     * existing batch.
+     *
+     * @param  string  $id
+     * @return $this
+     */
+    public function withId(string $id)
+    {
+        $this->id = $id;
+
+        return $this;
     }
 
     /**

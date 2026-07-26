@@ -22,6 +22,7 @@ use Illuminate\Database\Capsule\Manager as DB;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\PostgresConnection;
 use Illuminate\Database\Query\Builder;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Foundation\Bus\PendingChain;
 use Illuminate\Queue\CallQueuedClosure;
@@ -123,6 +124,46 @@ class BusBatchTest extends TestCase
         $this->schema()->drop('job_batches');
 
         parent::tearDown();
+    }
+
+    public function test_batch_is_stored_with_the_given_id()
+    {
+        $repository = new DatabaseBatchRepository(
+            new BatchFactory(m::mock(Factory::class)), DB::connection(), 'job_batches'
+        );
+
+        $batch = $repository->store(
+            (new PendingBatch(new Container, collect()))->withId('my-batch-id')
+        );
+
+        $this->assertSame('my-batch-id', $batch->id);
+        $this->assertSame('my-batch-id', $repository->find('my-batch-id')->id);
+    }
+
+    public function test_batch_is_stored_with_an_ordered_uuid_when_no_id_is_given()
+    {
+        $repository = new DatabaseBatchRepository(
+            new BatchFactory(m::mock(Factory::class)), DB::connection(), 'job_batches'
+        );
+
+        $batch = $repository->store(new PendingBatch(new Container, collect()));
+
+        $this->assertMatchesRegularExpression(
+            '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/', $batch->id
+        );
+    }
+
+    public function test_storing_a_batch_with_a_duplicate_id_surfaces_the_driver_error()
+    {
+        $repository = new DatabaseBatchRepository(
+            new BatchFactory(m::mock(Factory::class)), DB::connection(), 'job_batches'
+        );
+
+        $repository->store((new PendingBatch(new Container, collect()))->withId('my-batch-id'));
+
+        $this->expectException(QueryException::class);
+
+        $repository->store((new PendingBatch(new Container, collect()))->withId('my-batch-id'));
     }
 
     public function test_jobs_can_be_added_to_the_batch()

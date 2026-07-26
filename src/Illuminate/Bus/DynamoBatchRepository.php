@@ -162,7 +162,7 @@ class DynamoBatchRepository implements BatchRepository
      */
     public function store(PendingBatch $batch)
     {
-        $id = (string) Str::orderedUuid();
+        $id = $batch->id ?? (string) Str::orderedUuid();
 
         $batch = [
             'id' => $id,

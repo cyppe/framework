@@ -22,6 +22,13 @@ class ChainedBatch implements ShouldQueue
     public Collection $jobs;
 
     /**
+     * The ID that should be assigned to the batch.
+     *
+     * @var string|null
+     */
+    public ?string $id = null;
+
+    /**
      * The name of the batch.
      *
      * @var string
@@ -44,6 +51,7 @@ class ChainedBatch implements ShouldQueue
     {
         $this->jobs = static::prepareNestedBatches($batch->jobs);
 
+        $this->id = $batch->id;
         $this->name = $batch->name;
         $this->options = $batch->options;
 
@@ -88,6 +96,7 @@ class ChainedBatch implements ShouldQueue
     {
         $batch = Container::getInstance()->make(Dispatcher::class)->batch($this->jobs);
 
+        $batch->id = $this->id;
         $batch->name = $this->name;
         $batch->options = $this->options;
 

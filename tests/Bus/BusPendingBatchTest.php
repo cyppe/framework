@@ -60,13 +60,40 @@ class BusPendingBatchTest extends TestCase
         $pendingBatch->dispatch();
     }
 
+    public function test_pending_batch_may_be_given_an_id()
+    {
+        $container = new Container;
+
+        $job = new class
+        {
+            use Batchable;
+        };
+
+        $pendingBatch = (new PendingBatch($container, new Collection([$job])))->withId('my-batch-id');
+
+        $this->assertSame('my-batch-id', $pendingBatch->id);
+    }
+
+    public function test_pending_batch_has_no_id_by_default()
+    {
+        $container = new Container;
+
+        $job = new class
+        {
+            use Batchable;
+        };
+
+        $this->assertNull((new PendingBatch($container, new Collection([$job])))->id);
+    }
+
     public function test_batch_is_deleted_from_storage_if_exception_thrown_during_batching()
     {
         $this->expectException(RuntimeException::class);
 
         $container = new Container;
 
-        $job = new class {
+        $job = new class
+        {
         };
 
         $pendingBatch = new PendingBatch($container, new Collection([$job]));
@@ -221,7 +248,8 @@ class BusPendingBatchTest extends TestCase
 
     public function test_it_throws_exception_if_batched_job_is_not_batchable(): void
     {
-        $nonBatchableJob = new class {
+        $nonBatchableJob = new class
+        {
         };
 
         $this->expectException(RuntimeException::class);
@@ -237,7 +265,8 @@ class BusPendingBatchTest extends TestCase
         new PendingBatch(
             $container,
             new Collection(
-                [new PendingBatch($container, new Collection([new BatchableJob, new class {
+                [new PendingBatch($container, new Collection([new BatchableJob, new class
+                {
                 }]))]
             )
         );

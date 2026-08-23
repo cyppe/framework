@@ -1,4 +1,5 @@
 name: Redis Cluster proof (manual only)
+run-name: "proof fix=${{ inputs.fix }}"
 
 on:
   workflow_dispatch:
@@ -39,6 +40,7 @@ jobs:
           sudo apt update
           sudo apt-get install -y --fix-missing redis-server
           sudo service redis-server stop
+          echo "PROOF_INPUT fix=${{ inputs.fix }}"
           if [ "${{ inputs.fix }}" = "true" ]; then
             mkdir -p /tmp/redis-7000 /tmp/redis-7001 /tmp/redis-7002
             redis-server --daemonize yes --port 7000 --dir /tmp/redis-7000 --appendonly yes --cluster-enabled yes --cluster-config-file nodes-7000.conf
